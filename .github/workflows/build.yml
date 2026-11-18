@@ -1,0 +1,52 @@
+name: Construire l'APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Préparer le projet (dézippe Annota.zip si présent)
+        run: |
+          if ls *.zip >/dev/null 2>&1; then
+            for z in *.zip; do unzip -o -q "$z" -d _src; done
+          fi
+          PROJ=$(dirname "$(find . -name settings.gradle.kts -not -path './.git/*' | head -n 1)")
+          echo "Projet trouvé dans : $PROJ"
+          echo "PROJ=$PROJ" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Compiler l'APK
+        run: cd "$PROJ" && gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Publier l'APK (onglet Releases)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK=$(find "$PROJ/app/build/outputs/apk/release" -name '*.apk' | head -n 1)
+          cp "$APK" Annota.apk
+          gh release create "build-${{ github.run_number }}" Annota.apk \
+            --target "${{ github.sha }}" \
+            --title "Annota – version ${{ github.run_number }}" \
+            --notes "Télécharge Annota.apk ci-dessous et ouvre-le sur la tablette pour l'installer." \
+            --repo "${{ github.repository }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Annota-apk
+          path: Annota.apk
